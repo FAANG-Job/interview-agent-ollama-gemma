@@ -29,9 +29,10 @@ def get_response(messages):
             "messages": messages,
             "stream": False,
             "options": {
+                "num_ctx": 4096,       # Context-window capacity
                 "temperature": 0,
                 "seed": 42,
-                "num_predict": 10,
+                "num_predict": 150,
             },
         },
         timeout=120,
