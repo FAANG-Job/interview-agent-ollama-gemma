@@ -1,86 +1,123 @@
-# Interview Agent — Ollama + Gemma
+# Local LLM Engineering Agent
 
-A local LLM chatbot foundation for an AI-powered interview-preparation application.
+A local AI-assisted engineering foundation built with Python, Ollama, Gemma, and FastAPI.
 
-This project uses Python, Ollama, and the `gemma3:1b` model to send role-based chat prompts to a locally running LLM. It is the first building block toward an interview-preparation agent that can later analyse job descriptions, ask tailored questions, evaluate answers, and create preparation plans.
+This project demonstrates how a local large language model can be accessed through Python and exposed through REST APIs. It is a foundation for future AI-assisted engineering capabilities, including specification generation, test-scenario drafting, and implementation guidance.
 
-## What I built
+## Current capabilities
 
-- A Python client for Ollama's local Chat API
-- Role-based prompting using `system` and `user` messages
-- Support for passing an ordered `messages` history as conversation context
-- Configurable generation behaviour with `temperature`, `seed`, and `num_predict`
-- HTTP error handling with `response.raise_for_status()`
-- Unit-testable API code by mocking the Ollama HTTP request
+- Python client for Ollama's local Chat API
+- Local Gemma model integration through Ollama
+- Role-based prompting with `system` and `user` messages
+- Conversation-history support using ordered messages
+- Configurable LLM generation settings: context window, temperature, seed, and token limit
+- HTTP error handling for Ollama API calls
+- FastAPI server with basic REST endpoints
+- Interactive API documentation through FastAPI Swagger UI
 
-## AI concepts demonstrated
+## Technology stack
 
-| Concept | How this project uses it |
-| --- | --- |
-| Local LLM | Runs Gemma locally through Ollama instead of a cloud API |
-| System prompt | Defines the assistant's role and expected behaviour |
-| User prompt | Supplies the request or interview answer to process |
-| Conversation context | Can send prior messages again so the model can respond using recent chat history |
-| Context window | Limits how much combined prompt and response content the model can process at once |
-| Temperature | Controls randomness; lower values produce more consistent responses |
-| Seed | Uses a fixed starting value to improve repeatability for the same prompt |
-| Token limit | `num_predict` caps the length of a generated response |
+- Python
+- FastAPI
+- Uvicorn
+- Ollama
+- Gemma 3
+- Requests
 
-## Current scope
+## Architecture
 
-This is currently a **local LLM chatbot**, not yet a fully autonomous AI agent.
-
-The current demo sends a predefined system and user prompt to Gemma and returns the model's response. The next stages will add an interactive chat experience that preserves message history, an API layer, Angular UI integration, and interview-specific tools.
+```text
+REST API client or future Angular UI
+                |
+                v
+          FastAPI application
+                |
+                v
+       Python LLM client
+                |
+                v
+      Ollama local Chat API
+                |
+                v
+          Gemma local model
+```
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.10 or later
 - [Ollama](https://ollama.com/)
-- The Gemma model
+- Gemma model installed locally
+
+Install the required Python packages:
+
+```powershell
+py -m pip install requests
+py -m pip install "fastapi[standard]"
+```
+
+Download the local model:
 
 ```powershell
 ollama pull gemma3:1b
-py -m pip install requests
 ```
 
-## Run the demo
+## Run the FastAPI application
 
-Save the Python client as `ollama_system_user_prompt.py` and run:
+From the `backend` folder, run:
+
+```powershell
+py -m uvicorn main:app --reload
+```
+
+The application starts locally at `http://127.0.0.1:8000`.
+
+Open the interactive API documentation at:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## Current REST endpoints
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Confirms that the FastAPI application is running |
+| GET | `/api/v1/tasks` | Returns all sample tasks |
+| GET | `/api/v1/tasks/{task_id}` | Returns one task by ID |
+| POST | `/api/v1/tasks` | Creates a sample task |
+| PUT | `/api/v1/tasks/{task_id}` | Updates a task status |
+| DELETE | `/api/v1/tasks/{task_id}` | Deletes a sample task |
+
+The task endpoints currently use in-memory sample data. The data resets whenever the server restarts.
+
+## Run the local Ollama chat client
+
+Ensure Ollama is running. From the `backend` folder, run:
 
 ```powershell
 py .\ollama_system_user_prompt.py
 ```
 
-The program sends a predefined system and user prompt to Ollama and prints Gemma's answer.
+The client sends role-based messages to the local Gemma model and prints the generated response.
 
-## Example request flow
+## Current scope
 
-```text
-Python application
-→ Ollama local Chat API
-→ Gemma 3 model
-→ Generated response returned to Python
-```
+This project is currently a local LLM and FastAPI REST API foundation. It is not yet a fully autonomous AI agent or a production-ready service.
 
-## Testing
+The current REST endpoints demonstrate FastAPI development and provide a base for connecting controlled AI-assisted workflows to a UI or other services.
 
-The API client can be tested without calling Ollama by mocking `requests.post`:
+## Planned enhancements
 
-```powershell
-py -m unittest -v test_ollama_system_user_prompt.py
-```
-
-## Roadmap
-
-- [ ] Add an interactive multi-turn console chatbot
-- [ ] Build a FastAPI backend endpoint
-- [ ] Connect the backend to an Angular interview-practice UI
-- [ ] Analyse job descriptions and extract required skills
-- [ ] Generate role-specific interview questions
-- [ ] Evaluate candidate answers and provide feedback
-- [ ] Add persistent conversation history and relevant long-term memory
-- [ ] Add tool-driven workflows to evolve the chatbot into an interview-preparation agent
+- [ ] Add a FastAPI endpoint that calls the local Ollama/Gemma model
+- [ ] Add request and response models for AI-assisted engineering use cases
+- [ ] Generate requirement specifications and test-scenario drafts
+- [ ] Add an Angular user interface
+- [ ] Add unit and API tests
+- [ ] Add structured logging and health/readiness checks
+- [ ] Add Docker support
+- [ ] Add Kubernetes deployment configuration
+- [ ] Add controlled context retrieval and human-review workflows
 
 ## Why local LLMs?
 
-Running Gemma through Ollama makes it possible to experiment with LLM application development locally, keeps development data on the machine, and avoids depending on a cloud model API during early development.
+Running Gemma locally through Ollama supports private experimentation with LLM application development and avoids reliance on external model APIs during early development. It also provides a practical foundation for evaluating local model-integration patterns, prompt handling, and controlled AI-assisted engineering workflows.
