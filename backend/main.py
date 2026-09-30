@@ -1,14 +1,31 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
 from fastapi import HTTPException
-
+from ollama_system_user_prompt import get_response
+from pydantic import BaseModel,Field
+import json
+SYSTEM_PROMPT = (
+    "You are a senior QA engineer. "
+    "Create test scenarios for the supplied requirement. "
+    "Return one valid JSON object only. Do not use Markdown or code fences."
+)
 
 tasks = [
     {"id": 1, "name": "Create FastAPI endpoint", "status": "completed"},
     {"id": 2, "name": "Connect Ollama", "status": "in-progress"}
 ]
 
-    
+
+
+class GenerationOptions(BaseModel):
+    num_ctx: int = Field(default=4096, ge=512, le=8192)
+    temperature: float = Field(default=0, ge=0, le=1)
+    seed: int = 42
+    num_predict: int = Field(default=800, ge=50, le=2000)
+
+class TestScenarioRequest(BaseModel):
+    requirement: str
+    options: GenerationOptions = Field(default_factory=GenerationOptions)
+
 app = FastAPI(title="Rohit", version="o.1Draft")
     
 @app.get("/api/v1/tasks")
@@ -48,6 +65,36 @@ def delete_task(task_id: int):
             tasks.remove(task)
             return {"message": "Task deleted"}
     raise HTTPException(status_code=404, detail="Task not found") 
+
+
+
+
+@app.post("/api/ai/generate-test-scenarios")
+def generate_test_scenario(request: TestScenarioRequest):
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        },
+        {   
+            "role": "user",
+            "content": request.requirement,
+        },
+    ]   
+    response = get_response(messages,request.options.model_dump())
+    response = response.strip()
+    if response.startswith("```json"):
+        response = response[len("```json"):].strip()
+    elif response.startswith("```"):
+        response = response[len("```"):].strip()
+
+    if response.endswith("```"):
+        response = response[:-3].strip()
+
+    test_scenarios_json = json.loads(response)
+    return test_scenarios_json
+
     
+
 class ChatRequest(BaseModel):
     prompt: str
