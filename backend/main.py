@@ -3,6 +3,9 @@ from fastapi import HTTPException
 from ollama_system_user_prompt import get_response
 from pydantic import BaseModel,Field,ValidationError
 import json
+from cosine_similarity import get_embeddings,cosine_similarity
+
+
 SYSTEM_PROMPT = (
     "You are a senior QA engineer. "
     "Create exactly 5 distinct test scenarios for the supplied requirement. "
@@ -124,7 +127,16 @@ def generate_test_scenario(request: TestScenarioRequest):
             status_code=502,
             detail="The local LLM response does not match the required test-scenario format."
         ) 
-    
 
+class Embeddings(BaseModel):
+    requirement_a: str
+    requirement_b: str
+
+@app.post("/api/ai/compare_requirement")
+def get_requirement(requirement_a:str, requirement_b: str ):
+     embedding_a = get_embeddings(requirement_a)
+     embedding_b = get_embeddings(requirement_b)
+     return cosine_similarity(embedding_a,embedding_b)
+    
 class ChatRequest(BaseModel):
     prompt: str
