@@ -1,12 +1,16 @@
 from fastapi import FastAPI
 from fastapi import HTTPException
 from ollama_system_user_prompt import get_response
-from pydantic import BaseModel,Field
+from pydantic import BaseModel,Field,ValidationError
 import json
 SYSTEM_PROMPT = (
     "You are a senior QA engineer. "
-    "Create test scenarios for the supplied requirement. "
-    "Return one valid JSON object only. Do not use Markdown or code fences."
+    "Create exactly 5 distinct test scenarios for the supplied requirement. "
+    "Each scenario must contain: scenario_id, scenario_name, description, "
+    "steps, and expected_result. "
+    "The steps field must be a list of one or more short strings. "
+    "Return one valid JSON object with a test_scenarios array only. "
+    "Do not use Markdown, code fences, or explanatory text."
 )
 
 tasks = [
@@ -25,6 +29,16 @@ class GenerationOptions(BaseModel):
 class TestScenarioRequest(BaseModel):
     requirement: str
     options: GenerationOptions = Field(default_factory=GenerationOptions)
+
+class TestScenario(BaseModel):
+    scenario_id: str
+    scenario_name: str
+    description: str
+    steps: list[str] = Field(min_length=1)
+    expected_result: str
+
+class TestScenarioResponse(BaseModel):
+    test_scenarios: list[TestScenario] = Field(min_length=5, max_length=5)
 
 app = FastAPI(title="Rohit", version="o.1Draft")
     
@@ -91,9 +105,25 @@ def generate_test_scenario(request: TestScenarioRequest):
     if response.endswith("```"):
         response = response[:-3].strip()
 
-    test_scenarios_json = json.loads(response)
-    return test_scenarios_json
+    try:
+        print(response)
+        test_scenarios_json = json.loads(response)
 
+        return TestScenarioResponse.model_validate(test_scenarios_json)
+    except json.JSONDecodeError as error:
+        raise HTTPException(
+        status_code=502,
+        detail=(
+            f"Local LLM returned invalid JSON: {error.msg}. "
+            f"Line {error.lineno}, column {error.colno}."
+        )
+    )
+
+    except ValidationError:
+         raise HTTPException(
+            status_code=502,
+            detail="The local LLM response does not match the required test-scenario format."
+        ) 
     
 
 class ChatRequest(BaseModel):
