@@ -7,7 +7,7 @@ handles HTTP errors, and returns the model's generated answer.
 """
 import requests
 
-def get_response(messages):
+def get_response(messages, options=None):
     """
     Send role-based chat messages to the local Gemma model through Ollama.
 
@@ -20,20 +20,25 @@ def get_response(messages):
         messages (list): System, user, and optional assistant chat messages.
 
     Returns:
-        str: The generated response from Gemma.
+        str: The generated response from Gemm   a.
     """
+    default_options = {
+        "num_ctx": 4096,       # Context-window capacity
+        "temperature": 0,
+        "seed": 42,
+        "num_predict": 150,
+    }
+
+    if options is not None:
+        default_options = options
+
     response = requests.post(
         "http://localhost:11434/api/chat",
         json={
             "model": "gemma3:1b",
             "messages": messages,
             "stream": False,
-            "options": {
-                "num_ctx": 4096,       # Context-window capacity
-                "temperature": 0,
-                "seed": 42,
-                "num_predict": 150,
-            },
+            "options": default_options,
         },
         timeout=120,
     )
