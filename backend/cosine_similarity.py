@@ -15,6 +15,7 @@ def get_embeddings(text: str) -> list[float]:
             timeout=120,
         )
     response.raise_for_status()
+    #print(response.json()["embeddings"][0])
     return response.json()["embeddings"][0]
 
 def cosine_similarity(

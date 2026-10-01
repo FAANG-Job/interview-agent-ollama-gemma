@@ -260,3 +260,188 @@ Generated test scenarios are drafts intended for human review. Semantic-similari
 Running Gemma and embedding models locally through Ollama supports private experimentation with AI application development and avoids reliance on external model APIs during early development.
 
 The project provides a practical foundation for evaluating local model integration, prompt handling, structured outputs, semantic similarity, and controlled AI-assisted engineering workflows.
+
+## Update: Qdrant requirement storage and retrieval
+
+The original sections above document the project's first capabilities and examples. Since then, requirement storage and semantic retrieval have been implemented and checked through the FastAPI Swagger UI and Qdrant dashboard. The earlier planned item “Add semantic search across a stored requirement collection” is now implemented. The following setup instructions and examples extend the original documentation.
+
+### Software installation for the new capability
+
+The project needs **Python 3.10+**, **Ollama**, and **Podman**. The original installation commands above install Requests and FastAPI and download `gemma3:1b` and `embeddinggemma`. Install the additional Python package for Qdrant from the `backend` directory:
+
+```powershell
+py -m pip install qdrant-client
+```
+
+For a fresh installation, run all of the Python package commands together:
+
+```powershell
+py -m pip install requests "fastapi[standard]" qdrant-client
+```
+
+With Ollama installed and running, download the models if you have not already done so:
+
+```powershell
+ollama pull gemma3:1b
+ollama pull embeddinggemma
+```
+
+Install Podman and start its machine on Windows. If this is your first Podman run, use `podman machine init` once before starting it. Pull the Qdrant image, create a named volume for persistent data, and start the container:
+
+```powershell
+podman machine start
+podman pull docker.io/qdrant/qdrant:latest
+podman volume create qdrant_storage
+podman run -d --name qdrant -p 6333:6333 -v qdrant_storage:/qdrant/storage docker.io/qdrant/qdrant:latest
+```
+
+On later runs, start the existing container with `podman start qdrant` instead of repeating `podman run`. Qdrant's API is at <http://localhost:6333>, and its dashboard is at <http://localhost:6333/dashboard>. The named volume keeps Qdrant's data when the container stops.
+
+Once Ollama and Qdrant are running, start FastAPI from the `backend` folder as shown earlier:
+
+```powershell
+py -m uvicorn main:app --reload
+```
+
+Open <http://127.0.0.1:8000/docs> to try the endpoints.
+
+### FastAPI routers
+
+The requirement routes live in `qdrant_requirement_store.py`. That file defines a FastAPI `APIRouter`, and `main.py` includes it in the main application. For example, if both files are in the `backend` directory:
+
+```python
+# main.py — add these lines alongside the existing app and routes
+from qdrant_requirement_store import router as requirement_router
+
+app.include_router(requirement_router)
+```
+
+The route file uses the same router for both operations:
+
+```python
+# qdrant_requirement_store.py — abbreviated registration example
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/api/ai", tags=["AI"])
+
+@router.post("/requirements")
+def save_requirement(data):
+    ...
+
+@router.post("/search-requirements")
+def search_requirements(data):
+    ...
+```
+
+In your actual `main.py`, keep the existing `app = FastAPI()` and existing endpoints. Add `app.include_router(requirement_router)` **after** creating the app. If your router already has `/api/ai` in its route paths, do not add that prefix a second time. The new endpoints should appear in `/docs`.
+
+### REST endpoints added
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| POST | `/api/ai/requirements` | Generate an EmbeddingGemma vector and upsert a requirement with its ID and team in Qdrant |
+| POST | `/api/ai/search-requirements` | Embed search text and return top similar stored requirements with Qdrant scores |
+
+These endpoints extend the original REST endpoint table above. A requirement is stored as one Qdrant point: its vector comes from `embeddinggemma`, while the original fields live in the point payload. Search uses the **same** embedding model. Qdrant computes similarity using the collection's cosine distance setting. This is retrieval only; it does not implement RAG.
+
+### Example: store two requirements
+
+Submit this body to `POST /api/ai/requirements` in Swagger UI:
+
+```json
+{
+  "requirement_id": "101",
+  "team": "Accounts",
+  "requirement": "Users can reset a forgotten password using an email link."
+}
+```
+
+PowerShell alternative:
+
+```powershell
+$requirement = @{
+    requirement_id = "101"
+    team = "Accounts"
+    requirement = "Users can reset a forgotten password using an email link."
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/ai/requirements" -ContentType "application/json" -Body $requirement
+```
+
+Example success response **if your route returns the `stored` flag** (the exact response depends on your implementation):
+
+```json
+{
+  "requirement_id": "101",
+  "stored": true
+}
+```
+
+Store a second, unrelated requirement through the same endpoint:
+
+```json
+{
+  "requirement_id": "102",
+  "team": "Reports",
+  "requirement": "Administrators can export monthly sales reports to CSV."
+}
+```
+
+Open <http://localhost:6333/dashboard> and inspect the requirement collection. To view stored IDs and payloads without printing the long embedding vectors, use the dashboard Console:
+
+```http
+POST /collections/requirements/points/scroll
+```
+
+```json
+{
+  "limit": 10,
+  "with_payload": true,
+  "with_vector": false
+}
+```
+
+Replace `requirements` in the URL if the collection has a different name in your code. If the point IDs are stable, saving the same `requirement_id` again updates its existing point rather than raising the count.
+
+### Example: search stored requirements
+
+Submit this body to `POST /api/ai/search-requirements`:
+
+```json
+{
+  "query": "A customer forgot their password and needs an email reset link.",
+  "limit": 2
+}
+```
+
+PowerShell alternative:
+
+```powershell
+$search = @{
+    query = "A customer forgot their password and needs an email reset link."
+    limit = 2
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/ai/search-requirements" -ContentType "application/json" -Body $search
+```
+
+Example **illustrative** result when the two requirements above are stored; the exact scores and response shape depend on your data and route implementation:
+
+```json
+{
+  "matches": [
+    {
+      "score": 0.82,
+      "requirement_id": "101",
+      "team": "Accounts",
+      "requirement": "Users can reset a forgotten password using an email link."
+    },
+    {
+      "score": 0.18,
+      "requirement_id": "102",
+      "team": "Reports",
+      "requirement": "Administrators can export monthly sales reports to CSV."
+    }
+  ]
+}
+```
+
+The password reset requirement should generally rank above the unrelated export requirement. Scores are similarity measures, not percentages or a guarantee of equivalent meaning. If no requirements have been stored, search has no stored points to return.

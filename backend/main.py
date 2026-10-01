@@ -4,6 +4,7 @@ from ollama_system_user_prompt import get_response
 from pydantic import BaseModel,Field,ValidationError
 import json
 from cosine_similarity import get_embeddings,cosine_similarity
+from qdrant_requirement_store import router as requirements_router
 
 
 SYSTEM_PROMPT = (
@@ -44,7 +45,9 @@ class TestScenarioResponse(BaseModel):
     test_scenarios: list[TestScenario] = Field(min_length=5, max_length=5)
 
 app = FastAPI(title="Rohit", version="o.1Draft")
-    
+app.include_router(requirements_router)
+
+
 @app.get("/api/v1/tasks")
 def get_tasks():
     return tasks
