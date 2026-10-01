@@ -1,8 +1,13 @@
 from fastapi import FastAPI
 import requests
 import math
+from logging_config import configure_logging, get_logger
+
+configure_logging()
+logger = get_logger(__name__)
 
 def get_embeddings(text: str) -> list[float]:
+    logger.info("get_embeddings() text =%s", text);
     response = requests.post(
         # TODO: Implement remomve hard coding .env fiel
         # Rohit - I am taking time to implement.  
