@@ -484,6 +484,41 @@ OLLAMA_TIMEOUT_SECONDS=120
 
 All six values are required and validated during startup. The timeout must be a positive integer. Existing process environment variables override `.env` values. Restart FastAPI after configuration changes; `.env` changes alone may not trigger automatic reload.
 
+### How to use `.env.example` and `.env`
+
+`.env.example` is the shared configuration template. Copy it to create your own `.env`; keep the template in place so other developers can use it too.
+
+1. After cloning the repository, open PowerShell in the project root.
+2. If `backend/.env` does not already exist, create it from the template:
+
+   ```powershell
+   Copy-Item backend/.env.example backend/.env
+   ```
+
+3. Open your local configuration file:
+
+   ```powershell
+   notepad backend/.env
+   ```
+
+4. Adjust the service URLs, collection name, model names, and timeout for your local setup. Save the file with the exact name `.env`, not `.env.txt`.
+5. Start FastAPI from the project root:
+
+   ```powershell
+   py -m uvicorn main:app --reload --app-dir backend
+   ```
+
+When the application imports the shared `settings` object, `setting.py` reads `backend/.env` and validates its values. The application reads `.env`, not `.env.example`. The template alone does not configure the running application.
+
+If you change `.env` while FastAPI is running, press **Ctrl+C** and run the startup command again to load the updated values.
+
+| File | Purpose | Committed to Git? |
+| --- | --- | --- |
+| `backend/.env.example` | Shared template with safe sample values and required keys | Yes |
+| `backend/.env` | Local configuration read by `setting.py` | No; excluded by `.gitignore` |
+
+Each developer performs this copy after cloning. If the team adds a setting, update `.env.example` in Git and add the new key to your existing local `.env` manually. Copying the template over an existing `.env` would replace your local values, so use the copy command only for initial setup.
+
 ### Files committed to Git
 
 Commit the settings module, `.gitignore`, `backend/.env.example`, the dependency-file update, and this README. Keep `backend/.env` local. The example file contains safe sample values, never real credentials.
