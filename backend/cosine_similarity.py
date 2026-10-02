@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 import requests
 import math
 from logging_config import configure_logging, get_logger
@@ -9,17 +9,31 @@ logger = get_logger(__name__)
 
 def get_embeddings(text: str) -> list[float]:
     logger.info("get_embeddings() text =%s", text)
-    response = requests.post(
-        # TODO: Implement remomve hard coding .env fiel
-        # Rohit - I am taking time to implement.
-        "http://localhost:11434/api/embed",
-        json={
-            "model": "embeddinggemma",
-            "input": text,
-        },
-        # Rohit - Take time out value from .env file
-        timeout=120,
-    )
+    try:
+        response = requests.post(
+            # TODO: Implement remomve hard coding .env fiel
+            # Rohit - I am taking time to implement.
+            "http://localhost:11434/api/embed",
+            json={
+                "model": "embeddinggemma",
+                "input": text,
+            },
+            # Rohit - Take time out value from .env file
+            timeout=120,
+        )
+    except requests.exceptions.Timeout as exc:
+        logger.error("Ollama timeout: operation=embedding error=%s", exc)
+        raise HTTPException(
+            status_code=504,
+            detail="Embedding generation timed out. Please try again.",
+        ) from exc
+    except requests.exceptions.ConnectionError as exc:
+        logger.error("Ollama unavailable: operation=embedding error=%s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="AI service is unavailable. Please try again later.",
+        ) from exc
+
     response.raise_for_status()
     # print(response.json()["embeddings"][0])
     return response.json()["embeddings"][0]

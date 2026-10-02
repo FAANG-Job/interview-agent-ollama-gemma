@@ -1,10 +1,11 @@
 import json
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from qdrant_client import QdrantClient, models
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from cosine_similarity import get_embeddings
 from logging_config import configure_logging, get_logger
 import requests
+from qdrant_client.http.exceptions import ResponseHandlingException
 
 router = APIRouter(prefix="/api/ai", tags=["AI"])
 from uuid import NAMESPACE_URL, uuid5
@@ -39,19 +40,30 @@ def save_requirement(request: SaveRequirementRequest):
     logger.info(
         "Embedding for the requirment =%s model=embeddinggemma", request.requirement
     )
-
-    embedding_vector = get_embeddings(request.requirement)
-    if not qdrant.collection_exists(COLLECTION):
-        qdrant.create_collection(
-            collection_name=COLLECTION,
-            vectors_config=models.VectorParams(
-                size=len(embedding_vector),  # 768 for your current model
-                distance=models.Distance.COSINE,
-            ),
+    try:
+        embedding_vector = get_embeddings(request.requirement)
+        if not qdrant.collection_exists(COLLECTION):
+            qdrant.create_collection(
+                collection_name=COLLECTION,
+                vectors_config=models.VectorParams(
+                    size=len(embedding_vector),  # 768 for your current model
+                    distance=models.Distance.COSINE,
+                ),
+            )
+        logger.info(
+            "embeddHw ing_created dimensions=%d model=embeddinggemma",
+            len(embedding_vector),
         )
-    logger.info(
-        "embeddHw ing_created dimensions=%d model=embeddinggemma", len(embedding_vector)
-    )
+    except ResponseHandlingException as exc:
+        logger.error(
+            "Qdrant unavailable: operation=ask collection=%s error=%s",
+            COLLECTION,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Vector database is unavailable. Please try again later after some or talk to administator.@rohitaggarwal2004@gmail.com",
+        ) from exc
 
     point_id = str(uuid5(NAMESPACE_URL, request.requirement_id))
     qdrant.upsert(
@@ -77,17 +89,23 @@ def save_requirement(request: SaveRequirementRequest):
 def search_requirement(request: SearchRequirementRequest):
     logger.info("search_requirement() is called...")
     logger.info("query=%s", request)
+    try:
+        if not qdrant.collection_exists(COLLECTION):
+            return []
 
-    if not qdrant.collection_exists(COLLECTION):
-        return []
-
-    embedding_vector = get_embeddings(request.query)
-    points = qdrant.query_points(
-        collection_name=COLLECTION,
-        query=embedding_vector,
-        with_payload=True,
-        limit=request.limit,
-    ).points
+        embedding_vector = get_embeddings(request.query)
+        points = qdrant.query_points(
+            collection_name=COLLECTION,
+            query=embedding_vector,
+            with_payload=True,
+            limit=request.limit,
+        ).points
+    except ResponseHandlingException as exc:
+        logger.info("Failed to communicate with Qdrant")
+        raise HTTPException(
+            status_code=503,
+            detail="Vector database is unavailable. Please try again later after some or talk to administator.@rohitaggarwal2004@gmail.com",
+        ) from exc
 
     matches = []
     for point in points:
@@ -105,18 +123,30 @@ def search_requirement(request: SearchRequirementRequest):
 
 @router.post("/ask", response_model=AskResponse)
 def ask_with_context(request: SearchRequirementRequest):
-    if not qdrant.collection_exists(COLLECTION):
-        return {
-            "answer": "I don't know based on the stored requirements.",
-            "sources": [],
-        }
 
-    points = qdrant.query_points(
-        collection_name=COLLECTION,
-        query=get_embeddings(request.query),
-        with_payload=True,
-        limit=request.limit,
-    ).points
+    try:
+        if not qdrant.collection_exists(COLLECTION):
+            return {
+                "answer": "I don't know based on the stored requirements.",
+                "sources": [],
+            }
+
+        points = qdrant.query_points(
+            collection_name=COLLECTION,
+            query=get_embeddings(request.query),
+            with_payload=True,
+            limit=request.limit,
+        ).points
+    except ResponseHandlingException as exc:
+        logger.error(
+            "Qdrant unavailable: operation=ask collection=%s error=%s",
+            COLLECTION,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Vector database is unavailable. Please try again later after some or talk to administator.@rohitaggarwal2004@gmail.com",
+        ) from exc
 
     matches = []
     for point in points:
@@ -140,12 +170,33 @@ def ask_with_context(request: SearchRequirementRequest):
         f"[{match['requirement_id']}] {match['requirement']}" for match in matches
     )
     prompt = f"Requirements:\n{context}\n\nQuestion: {request.query}"
-    askResponse = AskResponse(
-        answer=generate_rag_answer(prompt),
-        sources=[m["requirement_id"] for m in matches],
-    )
-    logger.info("askResponse =%s", askResponse)
-    return askResponse
+    logger.info("prompt is =%s\n", prompt)
+    raw_json_response = generate_rag_answer(prompt)
+    logger.info("JSON response =%s", raw_json_response)
+
+    try:
+        ask_response = AskResponse.model_validate_json(raw_json_response)
+    except ValidationError as exception:
+        logger.error(
+            "Qdrant unavailable: operation=ask collection=%s error=%s",
+            COLLECTION,
+            str(exception),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="The model returned an invalid response.",
+        ) from exception
+
+    retrieved_ids = {m["requirement_id"] for m in matches}
+    if not set(ask_response.sources).issubset(retrieved_ids):
+        raise HTTPException(
+            status_code=502,
+            detail="The model cited a requirement that was not retrieved.",
+        )
+
+    logger.info("askResponse =%s", ask_response)
+
+    return ask_response
 
 
 RAG_SYSTEM_PROMPT = (
@@ -176,9 +227,10 @@ def generate_rag_answer(
     response = requests.post(
         "http://localhost:11434/api/chat",
         json={
-            "model": "gemma3:1b",
+            "model": "gemma3:4b",
             "messages": messages,
             "stream": False,
+            "format": AskResponse.model_json_schema(),
             "options": generation_options,
         },
         timeout=120,

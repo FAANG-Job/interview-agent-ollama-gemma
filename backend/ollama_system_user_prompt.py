@@ -37,7 +37,7 @@ def get_response(messages, options=None):
     response = requests.post(
         "http://localhost:11434/api/chat",
         json={
-            "model": "gemma3:1b",
+            "model": "gemma3:4b",
             "messages": messages,
             "stream": False,
             "options": default_options,
