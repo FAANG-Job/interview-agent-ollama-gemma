@@ -48,22 +48,34 @@ The FastAPI backend selects the appropriate local model for each endpoint. API c
 
 ## Architecture
 
-```text
-REST API client or future Angular UI
-                |
-                v
-          FastAPI application
-                |
-        ┌───────┴────────┐
-        v                v
-QA test scenarios   Requirement similarity
-        |                |
-        v                v
-   gemma3:1b       embeddinggemma
-        |                |
-        v                v
-Structured JSON    Vectors + cosine similarity
+```mermaid
+flowchart TD
+    Client["REST API client or future Angular UI"] --> API["FastAPI application"]
+    API --> QA["QA test scenarios"]
+    API --> Compare["Requirement comparison"]
+    API --> Search["Semantic search"]
+    API --> RAG["RAG question answering"]
+    QA --> Gemma["Gemma3:4b"]
+    Gemma --> JSON["Structured JSON"]
+    Compare --> Embeddings["EmbeddingGemma"]
+    Embeddings --> Similarity["Vectors + cosine similarity"]
+    Search --> Query["EmbeddingGemma query vector"]
+    RAG --> Query
+    Query --> Qdrant["Qdrant: retrieve requirements"]
+    Qdrant --> Records["Search: records + scores"]
+    Qdrant --> Context["RAG: retrieved context + question"]
+    Context --> AnswerModel["Gemma3:4b"]
+    AnswerModel --> Answer["Answer + supporting source IDs"]
 ```
+
+Requirement storage through `/requirements` supplies the vectors and metadata that Qdrant retrieves.
+
+* `/requirements` generates an embedding and stores the vector and requirement metadata in Qdrant.
+* `/search_requirement` embeds the query and returns the nearest stored requirements with similarity scores. It does not call the chat model.
+* `/ask` performs the same retrieval, includes the retrieved requirement text and IDs in the prompt, and calls `gemma3:4b` to generate an answer with supporting source IDs. This retrieval followed by generation is the RAG flow.
+* QA scenario generation calls the chat model directly, while pairwise requirement comparison uses embeddings and cosine similarity without Qdrant retrieval.
+
+The chat model is selected through `OLLAMA_CHAT_MODEL` in `.env`; the current setting is `gemma3:4b`. Earlier `gemma3:1b` examples describe the original setup.
 
 ## Prerequisites
 
