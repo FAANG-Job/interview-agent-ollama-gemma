@@ -9,6 +9,8 @@ This project demonstrates how local AI models can be accessed through Python and
 
 ## Current capabilities
 
+The original QA and comparison capabilities are retained below. Later update sections document Qdrant storage, semantic search, RAG, logging, and the current environment-based configuration.
+
 * Python client for Ollama's local APIs
 * Local `gemma3:1b` integration for text generation
 * Local `embeddinggemma` integration for semantic similarity
@@ -248,10 +250,12 @@ Generated test scenarios are drafts intended for human review. Semantic-similari
 * [ ] Add unit and API tests
 * [ ] Generate requirement specifications and other AI-assisted engineering drafts
 * [ ] Add an Angular user interface
-* [ ] Add structured logging and health/readiness checks
+* [x] Add rotating file logging and dependency-failure diagnostics
+* [ ] Extend health/readiness checks to cover dependencies
 * [ ] Store tasks and reviewed AI outputs in a database
-* [ ] Add semantic search across a stored requirement collection
-* [ ] Add controlled context retrieval and human-review workflows
+* [x] Add semantic search across a stored requirement collection
+* [x] Add RAG answers using retrieved requirements
+* [ ] Add human-review workflows
 * [ ] Add Docker support
 * [ ] Add Kubernetes deployment configuration
 
@@ -276,7 +280,7 @@ py -m pip install qdrant-client
 For a fresh installation, run all of the Python package commands together:
 
 ```powershell
-py -m pip install requests "fastapi[standard]" qdrant-client
+py -m pip install requests "fastapi[standard]" qdrant-client pydantic-settings
 ```
 
 With Ollama installed and running, download the models if you have not already done so:
@@ -328,7 +332,7 @@ router = APIRouter(prefix="/api/ai", tags=["AI"])
 def save_requirement(data):
     ...
 
-@router.post("/search-requirements")
+@router.post("/search_requirement")
 def search_requirements(data):
     ...
 ```
@@ -340,9 +344,9 @@ In your actual `main.py`, keep the existing `app = FastAPI()` and existing endpo
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | POST | `/api/ai/requirements` | Generate an EmbeddingGemma vector and upsert a requirement with its ID and team in Qdrant |
-| POST | `/api/ai/search-requirements` | Embed search text and return top similar stored requirements with Qdrant scores |
+| POST | `/api/ai/search_requirement` | Embed search text and return top similar stored requirements with Qdrant scores |
 
-These endpoints extend the original REST endpoint table above. A requirement is stored as one Qdrant point: its vector comes from `embeddinggemma`, while the original fields live in the point payload. Search uses the **same** embedding model. Qdrant computes similarity using the collection's cosine distance setting. This is retrieval only; it does not implement RAG.
+These endpoints extend the original REST endpoint table above. A requirement is stored as one Qdrant point: its vector comes from `embeddinggemma`, while the original fields live in the point payload. Search uses the **same** embedding model. Qdrant computes similarity using the collection's cosine distance setting. The `/search_requirement` endpoint performs retrieval only. The separate `/ask` endpoint generates a RAG answer from retrieved requirements, as described below.
 
 ### Example: store two requirements
 
@@ -404,7 +408,7 @@ Replace `requirements` in the URL if the collection has a different name in your
 
 ### Example: search stored requirements
 
-Submit this body to `POST /api/ai/search-requirements`:
+Submit this body to `POST /api/ai/search_requirement`:
 
 ```json
 {
@@ -420,28 +424,226 @@ $search = @{
     query = "A customer forgot their password and needs an email reset link."
     limit = 2
 } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/ai/search-requirements" -ContentType "application/json" -Body $search
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/ai/search_requirement" -ContentType "application/json" -Body $search
 ```
 
 Example **illustrative** result when the two requirements above are stored; the exact scores and response shape depend on your data and route implementation:
 
 ```json
-{
-  "matches": [
-    {
-      "score": 0.82,
-      "requirement_id": "101",
-      "team": "Accounts",
-      "requirement": "Users can reset a forgotten password using an email link."
-    },
-    {
-      "score": 0.18,
-      "requirement_id": "102",
-      "team": "Reports",
-      "requirement": "Administrators can export monthly sales reports to CSV."
-    }
-  ]
-}
+[
+  {
+    "score": 0.82,
+    "requirement_id": "101",
+    "team": "Accounts",
+    "requirement": "Users can reset a forgotten password using an email link."
+  },
+  {
+    "score": 0.18,
+    "requirement_id": "102",
+    "team": "Reports",
+    "requirement": "Administrators can export monthly sales reports to CSV."
+  }
+]
 ```
 
 The password reset requirement should generally rank above the unrelated export requirement. Scores are similarity measures, not percentages or a guarantee of equivalent meaning. If no requirements have been stored, search has no stored points to return.
+
+
+## Update: environment-based configuration
+
+Service URLs, collection name, model names, and Ollama request timeout are loaded through a shared Pydantic settings object instead of being hardcoded in API calls. The current chat-model setting is `gemma3:4b`; earlier `gemma3:1b` examples above describe the original integration.
+
+### Install the settings dependency
+
+```powershell
+py -m pip install pydantic-settings
+```
+
+Include `pydantic-settings` in the project's dependency file so fresh installations include it.
+
+### Create the local environment file
+
+From the project root, copy the committed template:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+```
+
+The template and local file use these keys:
+
+```dotenv
+QDRANT_URL=http://localhost:6333
+QDRANT_COLLECTION=requirements
+OLLAMA_URL=http://localhost:11434
+OLLAMA_CHAT_MODEL=gemma3:4b
+OLLAMA_EMBED_MODEL=embeddinggemma
+OLLAMA_TIMEOUT_SECONDS=120
+```
+
+`backend/setting.py` defines `Settings(BaseSettings)` and exports `settings = Settings()`. It loads `.env` from its own directory, regardless of the terminal's working directory. Application modules import it with `from setting import settings`. If the file is renamed to `settings.py`, change imports to `from settings import settings`.
+
+All six values are required and validated during startup. The timeout must be a positive integer. Existing process environment variables override `.env` values. Restart FastAPI after configuration changes; `.env` changes alone may not trigger automatic reload.
+
+### Files committed to Git
+
+Commit the settings module, `.gitignore`, `backend/.env.example`, the dependency-file update, and this README. Keep `backend/.env` local. The example file contains safe sample values, never real credentials.
+
+Relevant root `.gitignore` entries:
+
+```gitignore
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+logs/
+*.log
+*.log.*
+```
+
+If `.env` was already tracked, `.gitignore` will not untrack it. Remove it from Git's index while retaining the local file:
+
+```powershell
+git rm --cached backend/.env
+```
+
+On a new clone, copy `.env.example` to `.env` again. Changes to the template do not automatically update existing local environment files.
+
+### Start with the current configuration
+
+With Ollama running, download the configured models:
+
+```powershell
+ollama pull gemma3:4b
+ollama pull embeddinggemma
+```
+
+Start the existing Qdrant container:
+
+```powershell
+podman start qdrant
+```
+
+From the **project root**, start FastAPI:
+
+```powershell
+py -m uvicorn main:app --reload --app-dir backend
+```
+
+Alternatively, the original command remains valid **inside `backend`**:
+
+```powershell
+cd backend
+py -m uvicorn main:app --reload
+```
+
+Use one startup command. If Uvicorn reports `Could not import module "main"` from the project root, check that `--app-dir backend` is present. A subsequent traceback naming another module indicates an import, dependency, configuration, or syntax issue in that module.
+
+## Update: RAG answers from stored requirements
+
+| Method | Endpoint | Behavior |
+| --- | --- | --- |
+| POST | `/api/ai/requirements` | Embed and store a requirement in Qdrant |
+| POST | `/api/ai/search_requirement` | Return the nearest stored requirements with similarity scores |
+| POST | `/api/ai/ask` | Retrieve requirements, then generate an answer using the configured chat model |
+
+Both search and RAG use `embeddinggemma` to embed the query. Only `/ask` also calls the chat model to generate an answer. All valid retrieved requirements are included in the context before generation.
+
+The RAG system prompt restricts answers to the supplied requirements and asks for every supporting requirement ID. The response has `answer` and `sources` fields. Sources are generated with the answer rather than automatically listing every retrieved record. JSON/schema validation checks structure; it does not prove citation correctness.
+
+### Example: question answering
+
+The earlier example uses ID `102` for a Reports requirement. For this example, save the following record through `/api/ai/requirements`. Saving the same ID replaces that earlier record:
+
+```json
+{
+  "requirement_id": "102",
+  "team": "Security",
+  "requirement": "Password reset links expire after 30 minutes."
+}
+```
+
+With password-reset requirements `101` and `102` stored, submit to `POST /api/ai/ask`:
+
+```json
+{
+  "query": "How can I reset my password, and how long is the reset link valid?",
+  "limit": 2
+}
+```
+
+Example response; wording and source order may vary:
+
+```json
+{
+  "answer": "You can reset your password using an email link. The reset link expires after 30 minutes.",
+  "sources": ["101", "102"]
+}
+```
+
+For an unsupported question, the intended response is:
+
+```json
+{
+  "answer": "I don't know based on the stored requirements.",
+  "sources": []
+}
+```
+
+### Retrieval behavior and empty collections
+
+Search currently returns up to `limit` nearest records without a minimum similarity-score threshold. An unrelated query can still return records from a nonempty collection. `limit` controls the maximum number of results, not minimum relevance. Scores are not confidence percentages. Threshold tuning and broader answer-quality evaluation remain follow-up work.
+
+For a missing collection, `/search_requirement` returns `[]` and `/ask` returns an answer explaining that the stored requirements cannot support an answer, with empty sources. Empty collections also produce no search matches. A stopped Qdrant server is a dependency failure rather than an empty collection.
+
+## Update: logging and graceful dependency failures
+
+The previous error-handling MR adds diagnostic logging and controlled API errors when Qdrant or the Ollama server is unavailable. The configuration MR supplies service URLs and model names through the shared settings object.
+
+### Application log file
+
+`logging_config.py` configures the `local_llm` logger. Modules obtain child loggers through `get_logger(__name__)`.
+
+* Log file: `backend/logs/app.log`, resolved relative to `logging_config.py`.
+* Handler: UTF-8 `RotatingFileHandler`, with `maxBytes=5_000_000` and up to three backup files.
+* Format: timestamp, level, logger name, and message.
+* The log directory is created automatically. Logs are excluded from Git.
+
+Dependency errors identify the affected operation and relevant diagnostic details. Label `/ask` failures `operation=ask` and search failures `operation=search_requirement`.
+
+Use `logger.error(...)` for a concise expected outage message. Use `logger.exception(...)` inside an exception handler when a full traceback is needed for diagnosis. Logging placeholders use `%s`, for example `logger.info("JSON response=%s", raw_json_response)`.
+
+### Unavailable dependencies
+
+| Condition | API behavior |
+| --- | --- |
+| Qdrant cannot be reached | Affected endpoints return a controlled `503 Service Unavailable` response and log the failure |
+| Ollama cannot be reached | Affected embedding or generation calls return a controlled `503 Service Unavailable` response and log the failure |
+| Local model returns malformed JSON or an invalid response structure | Generation endpoints return a controlled `502 Bad Gateway` response |
+
+Qdrant error handling covers `collection_exists(...)` as well as retrieval, because checking for a collection also requires server connectivity. Ollama error handling surrounds requests in the embedding and generation helpers, since either call can fail.
+
+Client-facing messages explain which dependency is unavailable. Internal exception details and tracebacks belong in the application log.
+
+### Manual outage checks
+
+These steps document the manual validation workflow; they are not an automated test suite.
+
+1. Start FastAPI, Qdrant, and Ollama. Verify a normal search and RAG request.
+2. Stop Qdrant with `podman stop qdrant`. Call `/api/ai/search_requirement` and `/api/ai/ask`. Check for controlled `503` responses and diagnostic entries in `backend/logs/app.log`.
+3. Restart Qdrant with `podman start qdrant` and retry the requests to check recovery.
+4. On Windows, quit the Ollama tray application before stopping any remaining Ollama server process. The desktop application can restart the server if only its server process is terminated.
+5. Confirm Ollama is unreachable. Call an embedding-dependent endpoint or `/ask`. Check for a controlled `503` response and a diagnostic log entry.
+6. Restart Ollama and retry to check recovery. To test generation failure separately, Ollama must become unavailable after embedding succeeds, or the generation helper must be exercised independently.
+
+`ollama stop gemma3:4b` unloads the model from memory; it does **not** stop the Ollama server. A later API request can load the model again. An empty `ollama ps` means no models are currently loaded, not that the server is offline.
+
+Check Ollama connectivity with:
+
+```powershell
+Invoke-RestMethod http://localhost:11434/api/tags
+```
+
+If `ollama serve` reports that port `11434` is already in use, check whether Ollama is already serving requests before starting another instance.
