@@ -7,7 +7,7 @@ handles HTTP errors, and returns the model's generated answer.
 """
 
 import requests
-
+from settings import settings
 
 def get_response(messages, options=None):
     """
@@ -35,9 +35,9 @@ def get_response(messages, options=None):
         default_options = options
 
     response = requests.post(
-        "http://localhost:11434/api/chat",
+         f"{settings.OLLAMA_URL.rstrip('/')}/api/chat",
         json={
-            "model": "gemma3:4b",
+            "model": settings.OLLAMA_CHAT_MODEL,
             "messages": messages,
             "stream": False,
             "options": default_options,
