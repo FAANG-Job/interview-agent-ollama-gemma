@@ -2,7 +2,9 @@
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
 APP_LOGGER = "local_llm"
+
 
 def configure_logging() -> None:
     logger = logging.getLogger(APP_LOGGER)
@@ -29,4 +31,3 @@ def configure_logging() -> None:
 
 def get_logger(module_name: str) -> logging.Logger:
     return logging.getLogger(f"{APP_LOGGER}.{module_name}")
-
