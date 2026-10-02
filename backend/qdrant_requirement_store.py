@@ -6,6 +6,7 @@ from cosine_similarity import get_embeddings
 from logging_config import configure_logging, get_logger
 import requests
 from qdrant_client.http.exceptions import ResponseHandlingException
+from settings import settings
 
 router = APIRouter(prefix="/api/ai", tags=["AI"])
 from uuid import NAMESPACE_URL, uuid5
@@ -13,9 +14,8 @@ from uuid import NAMESPACE_URL, uuid5
 configure_logging()
 logger = get_logger(__name__)
 
-QDRANT_URL = "http://localhost:6333"
-COLLECTION = "requirements"
-qdrant = QdrantClient(url=QDRANT_URL)
+COLLECTION = settings.QDRANT_COLLECTION
+qdrant = QdrantClient(url=settings.QDRANT_URL)
 
 
 class SaveRequirementRequest(BaseModel):
@@ -225,7 +225,7 @@ def generate_rag_answer(
         generation_options.update(options)
 
     response = requests.post(
-        "http://localhost:11434/api/chat",
+        f"{settings.OLLAMA_URL.rstrip('/')}/api/chat",
         json={
             "model": "gemma3:4b",
             "messages": messages,

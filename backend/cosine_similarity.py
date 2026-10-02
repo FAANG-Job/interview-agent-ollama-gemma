@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 import requests
 import math
 from logging_config import configure_logging, get_logger
+from settings import settings
 
 configure_logging()
 logger = get_logger(__name__)
@@ -11,15 +12,13 @@ def get_embeddings(text: str) -> list[float]:
     logger.info("get_embeddings() text =%s", text)
     try:
         response = requests.post(
-            # TODO: Implement remomve hard coding .env fiel
-            # Rohit - I am taking time to implement.
-            "http://localhost:11434/api/embed",
+            f"{settings.OLLAMA_URL.rstrip('/')}/api/embed",
             json={
-                "model": "embeddinggemma",
+                "model": settings.OLLAMA_EMBED_MODEL,
                 "input": text,
             },
             # Rohit - Take time out value from .env file
-            timeout=120,
+            timeout=settings.OLLAMA_TIMEOUT_SECONDS,
         )
     except requests.exceptions.Timeout as exc:
         logger.error("Ollama timeout: operation=embedding error=%s", exc)
